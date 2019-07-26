@@ -1,5 +1,7 @@
 
-import pygame
+import contextlib
+with contextlib.redirect_stdout(None):
+  import pygame
 import game
 
 pygame.init()
@@ -16,7 +18,10 @@ while not crashed:
     if event.type == pygame.QUIT:
       crashed = True
 
-  board.update()
+  if board.update():
+    crashed = True
   board.render()
   pygame.display.update()
   clock.tick(60)
+
+print("Score: {}".format(board.get_score()))

@@ -1,6 +1,8 @@
 
 import random
-import pygame
+import contextlib
+with contextlib.redirect_stdout(None):
+  import pygame
 
 class Board():
 
@@ -18,24 +20,34 @@ class Board():
     self.background_image.convert()
     pygame.mixer.music.load('assets/song.mp3')
     pygame.mixer.music.play(-1)
+    self.force_update_tiles(-20)
+    self.force_update_tiles(0)
+    self.force_update_tiles(20)
+    self.font = pygame.font.SysFont('Monospace', 30)
+    self.max_player_x = 0
 
-  def update_tiles(self):
-    if self.player.x + 20 > self.tiles_generated_x_max:
-      for _ in range(5):
-        self.create_random_platform()
-      for i in range(int(self.player.x) + 20, int(self.player.x) + 40):
-        self.tiles[(i, 20)] = Tile((i, 20))
-      self.tiles_generated_x_max = self.player.x + 40
+  def update_tiles(self, offset):
+    if self.player.x + offset > self.tiles_generated_x_max:
+      self.force_update_tiles(offset)
 
-  def create_random_platform(self):
-    x = random.randrange(int(self.player.x) + 20, int(self.player.x) + 40)
+  def force_update_tiles(self, offset):
+    for _ in range(5):
+      self.create_random_platform(offset)
+    for i in range(int(self.player.x) + offset - 10, int(self.player.x) + offset + 30):
+      self.tiles[(i, 20)] = Spike((i, 20), self.tile_size)
+    self.tiles_generated_x_max = self.player.x + offset + 20
+
+  def create_random_platform(self, offset):
+    x = random.randrange(int(self.player.x) + offset, int(self.player.x) + offset + 20)
     y = random.randrange(10, 20)
     width = random.randrange(0, 10)
     for i in range(x, x + width):
-      self.tiles[(i, y)] = Tile((i, y))
+      self.tiles[(i, y)] = Tile((i, y), self.tile_size)
 
   def update(self):
     self.player.update()
+    if self.player.x > self.max_player_x:
+      self.max_player_x = self.player.x
     player_pixel_x = self.player.x * self.tile_size
     player_pixel_y = self.player.y * self.tile_size
     if player_pixel_x - self.scroll_x > 500:
@@ -46,7 +58,8 @@ class Board():
       self.scroll_y += player_pixel_y - self.scroll_y - 400
     if player_pixel_y - self.scroll_y < 200:
       self.scroll_y += player_pixel_y - self.scroll_y - 200
-    self.update_tiles()
+    self.update_tiles(20)
+    return self.player.touching_spike()
 
   def render(self):
     self.display.blit(self.background_image, ((-self.scroll_x / 2 % 800)      , (-self.scroll_y / 2 % 600)      ))
@@ -56,12 +69,17 @@ class Board():
     for pos in self.tiles:
       self.tiles[pos].render(self.display, self.tile_size, self.scroll_x, self.scroll_y)
     self.player.render(self.display, self.tile_size, self.scroll_x, self.scroll_y)
+    textsurface = self.font.render(str("Score: {}".format(self.get_score())), True, (235, 229, 52))
+    self.display.blit(textsurface, (20, 20))
+
+  def get_score(self):
+    return int(self.score + self.max_player_x)
 
 class Player():
 
   def __init__(self, board):
     self.x = 0
-    self.y = 0
+    self.y = 8
     self.y_vel = 0
     self.board = board
     self.player_image = pygame.image.load("assets/player.gif")
@@ -154,6 +172,24 @@ class Player():
         return True
     return False
 
+  def touching_spike(self):
+    nearby_tiles = []
+    nearby_offsets = []
+    for y in range(-1, 3):
+      for x in range(-1, 3):
+        nearby_offsets.append((x, y))
+    for offset in nearby_offsets:
+      pos = (offset[0] + int(self.x), offset[1] + int(self.y))
+      if pos in self.board.tiles:
+        nearby_tiles.append(self.board.tiles[pos])
+    for tile in nearby_tiles:
+      if ((self.x     > tile.x and self.y     >= tile.y and self.x     < tile.x + 1 and self.y     < tile.y + 1) or \
+          (self.x + 1 > tile.x and self.y     >= tile.y and self.x + 1 < tile.x + 1 and self.y     < tile.y + 1) or \
+          (self.x     >= tile.x and self.y + 1 >= tile.y and self.x     < tile.x + 1 and self.y + 1 < tile.y + 1) or \
+          (self.x + 1 > tile.x and self.y + 1 >= tile.y and self.x + 1 < tile.x + 1 and self.y + 1 < tile.y + 1)) and type(tile) == Spike:
+        return True
+    return False
+
   def render(self, display, tile_size, scroll_x, scroll_y):
     pygame.draw.rect(display, (120, 117, 28), (20, 600 - 120, 20, 100))
     if self.boost != 0:
@@ -168,12 +204,27 @@ class Player():
 
 class Tile():
 
-  def __init__(self, pos):
+  image = pygame.image.load("assets/tile.png")
+
+  def __init__(self, pos, tile_size):
     self.x = pos[0]
     self.y = pos[1]
+    Tile.image = pygame.transform.scale(Tile.image, (tile_size, tile_size))
 
   def render(self, display, tile_size, scroll_x, scroll_y):
-    pygame.draw.rect(display, (255, 255, 255), (self.x * tile_size - scroll_x, self.y * tile_size - scroll_y, tile_size, tile_size))
+    display.blit(Tile.image, (self.x * tile_size - scroll_x, self.y * tile_size - scroll_y))
+
+class Spike():
+
+  image = pygame.image.load("assets/spike.png")
+
+  def __init__(self, pos, tile_size):
+    self.x = pos[0]
+    self.y = pos[1]
+    Spike.image = pygame.transform.scale(Spike.image, (tile_size, tile_size))
+
+  def render(self, display, tile_size, scroll_x, scroll_y):
+    display.blit(Spike.image, (self.x * tile_size - scroll_x, self.y * tile_size - scroll_y))
 
 class Food():
 
